@@ -1,8 +1,18 @@
-## Batch Patch Segmentation Using Hover-Net
-
-In this project, we use [Hover-Net](https://github.com/vqdang/hover_net) to perform nuclear instance segmentation on image patches from multiple datasets. To streamline batch processing, we wrote the following shell script to iterate through each dataset and run the `run_infer.py` inference script:
-
+This project performs end-to-end processing of histological image patches, including:
+1. Nuclear Segmentation using [Hover-Net](https://github.com/vqdang/hover_net)
+2. Feature Extraction from segmented nuclei
+3. Model Training and Evaluation
+---
+## Pipeline Overview
+### Step 1: Nuclear Segmentation
+Use a pretrained Hover-Net model to segment nuclei from image patches.
+#### Input:
+- Image patches in: `/data/bc/{DATASET}/patches/`
+#### Output:
+- Segmentation masks saved to: `/dlpfc/{bc}/segment/`
+#### Run Segmentation Script (`batch_infer.sh`):
 ```bash
+#!/bin/bash
 datasets=(
     A1 A2 A3 A4 A5 A6
     B1 B2 B3 B4 B5 B6
@@ -25,3 +35,7 @@ for dataset in "${datasets[@]}"; do
         --draw_dot \
         --save_qupath
 done
+```
+### Step 2: Feature Extraction
+After segmentation, extract morphological, spatial, or biological features using scripts in the preprocess/ folder.
+### Step 3: Model Training and Evaluation
