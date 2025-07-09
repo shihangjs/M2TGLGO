@@ -29,8 +29,8 @@ for dataset in "${datasets[@]}"; do
         --nr_inference_workers=8 \
         --nr_post_proc_workers=16 \
         tile \
-        --input_dir="/data/dlpfc/${dataset}/patches" \
-        --output_dir="/dlpfc/${dataset}/segment" \
+        --input_dir="/data/bc/${dataset}/patches" \
+        --output_dir="/bc/${dataset}/segment" \
         --mem_usage=0.1 \
         --draw_dot \
         --save_qupath
