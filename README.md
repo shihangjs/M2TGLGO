@@ -1,3 +1,5 @@
+### **Most of the core code is already in place. We are currently organizing the project, and full examples will be available in August. Stay tuned!**
+
 This project performs end-to-end processing of histological image patches, including:
 1. Nuclear Segmentation using [Hover-Net](https://github.com/vqdang/hover_net)
 2. Feature Extraction from segmented nuclei
