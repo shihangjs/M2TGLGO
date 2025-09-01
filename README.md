@@ -1,23 +1,19 @@
-###  Step 0: Patch Cropping (Based on Spatial Transcriptomics Spots)
+### Step 0: Patch Cropping
 
-> This is the **initial step** of the pipeline. Before nuclear segmentation, you must crop image patches around spatial transcriptomics **spot locations** from high-resolution histology images.  
+> This is the **initial step** of the pipeline. Before nuclear segmentation, you must crop image patches around spatial transcriptomics **spot locations** from high-resolution histology images.
 > Each sample (e.g., `A1`, `B1`, etc.) contains its own image and corresponding spot coordinate files.
 
----
-
-####  Input Format
+#### Input Format
 
 Each sample directory (e.g., `A1`, `B1`, etc.) should contain the following files:
 
-| File Name                  | Description                                      |
-|----------------------------|--------------------------------------------------|
-| `*.jpg`                   | Histology tissue image for the sample            |
-| `*.tsv.gz`                | Spot coordinate file (with x/y positions)        |
-| `*_selection.tsv.gz`      | *(Optional)* A filtered list of selected spots   |
+| File Name            | Description                                    |
+| -------------------- | ---------------------------------------------- |
+| `*.jpg`              | Histology tissue image for the sample          |
+| `*.tsv.gz`           | Spot coordinate file (with x/y positions)      |
+| `*_selection.tsv.gz` | *(Optional)* A filtered list of selected spots |
 
 These files will be used to generate image patches centered on each spatial spot.
-
----
 
 #### Example Directory Structure
 
@@ -38,9 +34,7 @@ data/
 │   └── B1_selection.tsv.gz
 ```
 
----
-
-####  Output
+#### Output
 
 Cropped image patches will be saved to:
 
@@ -52,21 +46,16 @@ Each patch corresponds to one spatial spot, and will be used in downstream nucle
 
 ---
 
-
 #### Data Loading Guide: Support for Multiple Data Types
 
-This pipeline supports **two types** of spatial transcriptomics datasets:
+This pipeline supports different types of spatial transcriptomics datasets:
 
-| Dataset Type | Source Format             | Loading Method                           |
-|--------------|---------------------------|------------------------------------------|
-| `10x`        | 10x Visium standard format | Loaded via `scanpy.read_visium()`        |
+| Dataset Type | Source Format              | Loading Method                                  |
+| ------------ | -------------------------- | ----------------------------------------------- |
+| `10x`        | 10x Visium standard format | Loaded via `scanpy.read_visium()`               |
 | `other`      | Custom (tsv/image/coords)  | Loaded using a custom `create_adata()` function |
 
----
-
 #### Data Loading Logic
-
-The script will automatically choose the appropriate loading strategy based on the `dataset_key`:
 
 ```python
 if dataset_key == "10x":
@@ -78,71 +67,46 @@ else:
     adata, _ = create_adata(input_dir, dataset_label)
 ```
 
----
-
 #### `create_adata()` Function: Build AnnData for Custom Datasets
-
-This function builds a standard `AnnData` object from a raw expression `.tsv` file, a high-resolution `.jpg` image, and a coordinate file.  
-You may need to adjust the file paths or column names based on your specific data.
-
----
-
-#### `create_adata()` Function: Build AnnData for Custom Datasets Required Files per Sample
 
 Each dataset directory should contain:
 
-| File Name                         | Description                                 |
-|----------------------------------|---------------------------------------------|
-| `{dataset_label}.tsv.gz`         | Spot × Gene expression matrix               |
-| `{dataset_label}_selection.tsv.gz` | Spot coordinates (including pixel_x/y)     |
-| `{dataset_label}.jpg`            | High-resolution tissue image                |
+| File Name                          | Description                             |
+| ---------------------------------- | --------------------------------------- |
+| `{dataset_label}.tsv.gz`           | Spot × Gene expression matrix           |
+| `{dataset_label}_selection.tsv.gz` | Spot coordinates (including pixel\_x/y) |
+| `{dataset_label}.jpg`              | High-resolution tissue image            |
 
----
-
-#### `create_adata()` Function: Build AnnData for Custom Datasets Example Code for `create_adata()`
+#### Example Code for `create_adata()`
 
 ```python
 def create_adata(data_path, dataset_label):
-    import pandas as pd
-    import numpy as np
-    from PIL import Image
-    from scipy.spatial import cKDTree
-    import anndata
-
-    # 1. Load expression matrix
     expression_matrix = pd.read_csv(
         f"{data_path}/{dataset_label}/{dataset_label}.tsv.gz",
         sep="\t", index_col=0
     )
 
-    # 2. Load spot coordinates
     spot_coordinates = pd.read_csv(
         f"{data_path}/{dataset_label}/{dataset_label}_selection.tsv.gz",
         sep="\t"
     )
 
-    # 3. Generate spot IDs and match with expression matrix
     spot_coordinates['spot'] = spot_coordinates['x'].astype(str) + 'x' + spot_coordinates['y'].astype(str)
     common_spots = expression_matrix.index.intersection(spot_coordinates['spot'])
     expression_matrix = expression_matrix.loc[common_spots]
     spot_coordinates = spot_coordinates.set_index('spot').loc[common_spots].reset_index()
 
-    # 4. Compute neighbor distance (for patch size estimation)
     coords = spot_coordinates[['pixel_x', 'pixel_y']].values
     tree = cKDTree(coords)
     distances, _ = tree.query(coords, k=5)
     min_distances = distances[:, 1:].min(axis=1)
     spot_coordinates['neighbor_distance'] = min_distances
 
-    # 5. Load tissue image
     image_path = f"{data_path}/{dataset_label}/{dataset_label}.jpg"
     image = Image.open(image_path)
     image_array = np.array(image)
 
-    # 6. Construct AnnData
     adata = anndata.AnnData(X=expression_matrix)
-
-    # 7. Add metadata
     adata.obsm['spatial'] = spot_coordinates[['pixel_x', 'pixel_y']].values
     adata.obsm['supp_info'] = spot_coordinates[['x', 'y', 'new_x', 'new_y']].values
     adata.obs['neighbor_distance'] = spot_coordinates['neighbor_distance'].values
@@ -167,20 +131,21 @@ def create_adata(data_path, dataset_label):
     return adata, image_array
 ```
 
+#### Notes
+
+* The `neighbor_distance` is used to approximate the full-resolution spot size.
+* The `adata.uns['spatial']` field mimics 10x Visium's data structure, which helps with downstream compatibility.
+* Modify this function if your data format differs.
+
 ---
 
-#### `create_adata()` Function: Build AnnData for Custom Datasets Notes
 
-- The `neighbor_distance` is used to approximate the full-resolution spot size.
-- The `adata.uns['spatial']` field mimics 10x Visium's data structure, which helps with downstream compatibility.
-- Modify this function if your data format differs.
+### Step 1: Nuclear Segmentation (Using Hover-Net)
 
-
-###  Step 1: Nuclear Segmentation (Using Hover-Net)
-
-> This step uses a **pretrained Hover-Net model** to perform **nucleus segmentation** on each image patch.  
+> This step uses a **pretrained Hover-Net model** to perform **nucleus segmentation** on each image patch.
 > The output is a per-spot segmentation mask and cell type annotation, which will be used in the next step (feature extraction).
 
+---
 
 #### Hover-Net Segmentation Script (`run_hovernet.sh`)
 
@@ -221,15 +186,42 @@ bash run_hovernet.sh
 
 ---
 
+#### Output Directory Structure
 
-###  Step 2: Feature Extraction (from Segmented Nuclei)
+After running the segmentation, each dataset folder will contain a `segment/` subdirectory:
 
-> After segmentation, this step extracts **patch-level features** from each patch using both image and segmentation data.  
-The script [`patch_cell_feature_extract_.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
+```
+data/
+└── B1/
+    ├── patches/                # Input patches
+    └── segment/
+        ├── mat/               # Output .mat or .npy files (cell instance masks and types)
+        └── json/              # Output .json files (nucleus contours and labels)
+```
+
+These outputs are required for the next step (feature extraction).
 
 ---
 
-####  Required Folder Structure
+#### Notes
+
+* Ensure that each dataset (A1, B1, etc.) has a valid set of image patches in `/patches/` before running Hover-Net.
+* The `--type_info_path` must point to a JSON file defining cell type labels used by Hover-Net.
+* Adjust `--gpu`, `--batch_size`, or `--nr_workers` based on your local hardware.
+* The output is fully compatible with the downstream feature extraction script `patch_cell_feature_extract_.py`.
+
+---
+
+You can now proceed to Step 2: Feature Extraction.
+
+### Step 2: Feature Extraction (from Segmented Nuclei)
+
+> After segmentation, this step extracts **patch-level features** from each patch using both image and segmentation data.
+> The script [`patch_cell_feature_extract.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
+
+---
+
+#### Required Folder Structure
 
 Each sample (e.g., `A1`, `B1`) must include the following subdirectories:
 
@@ -240,12 +232,12 @@ data/
     ├── segment/
     │   ├── mat/                 # Hover-Net segmentation outputs (.mat or .npy files)
     │   └── json/                # JSON files with nucleus contours / cell type info
-    └── feature/                 # [Output] Extracted feature CSVs will be saved here
+    └── feature/               # [Output] Extracted feature CSVs will be saved here
 ```
 
 ---
 
-####  Example Feature Extraction Loop
+#### Example Feature Extraction Loop
 
 If you're processing multiple samples, you can run a loop like this:
 
@@ -272,14 +264,36 @@ for file in files:
     )
 ```
 
-Make sure `process_files()` is imported or defined in your script.
+Make sure the function `process_files()` is properly imported or defined in your script.
 
 ---
 
-###  Step 3: Model Training and Evaluation (Multi-Modal Graph Neural Network)
+---
 
+### Extracted Features Overview
+
+During Step 2, the following types of features are extracted from each segmented nucleus and aggregated per patch:
+
+#### Morphological Features
+- **Shape descriptors**: area, perimeter, eccentricity, aspect ratio, solidity, convexity, etc.
+- **Skeleton-based features**: skeleton length, convex area, Euler number.
+
+#### Spatial Features
+- **Graph-based metrics**: number of Delaunay neighbors, average neighbor distance, nearest neighbor distance.
+- **Voronoi area**: local spatial density estimation per nucleus.
+
+#### Texture Features
+- **GLCM-based**: contrast, correlation, energy, entropy, homogeneity, dissimilarity, and advanced statistical measures.
+- **LBP histogram**: Local Binary Pattern histograms capturing local texture patterns.
+
+Each feature is first computed at the **cell level**, and then **aggregated (mean-pooled)** to generate patch-level features for downstream modeling.
+
+---
+
+
+###  Step 3: Model Training and Evaluation
 > In this step, M2TGLO is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
-> The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity graphs** to regularize prediction.
+> The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity** to regularize prediction.
 
 ---
 
