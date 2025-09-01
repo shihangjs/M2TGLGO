@@ -53,6 +53,129 @@ Each patch corresponds to one spatial spot, and will be used in downstream nucle
 ---
 
 
+#### Data Loading Guide: Support for Multiple Data Types
+
+This pipeline supports **two types** of spatial transcriptomics datasets:
+
+| Dataset Type | Source Format             | Loading Method                           |
+|--------------|---------------------------|------------------------------------------|
+| `10x`        | 10x Visium standard format | Loaded via `scanpy.read_visium()`        |
+| `other`      | Custom (tsv/image/coords)  | Loaded using a custom `create_adata()` function |
+
+---
+
+#### Data Loading Logic
+
+The script will automatically choose the appropriate loading strategy based on the `dataset_key`:
+
+```python
+if dataset_key == "10x":
+    adata = sc.read_visium(
+        path=subfolder_path,
+        count_file='filtered_feature_bc_matrix.h5'
+    )
+else:
+    adata, _ = create_adata(input_dir, dataset_label)
+```
+
+---
+
+#### `create_adata()` Function: Build AnnData for Custom Datasets
+
+This function builds a standard `AnnData` object from a raw expression `.tsv` file, a high-resolution `.jpg` image, and a coordinate file.  
+You may need to adjust the file paths or column names based on your specific data.
+
+---
+
+#### `create_adata()` Function: Build AnnData for Custom Datasets Required Files per Sample
+
+Each dataset directory should contain:
+
+| File Name                         | Description                                 |
+|----------------------------------|---------------------------------------------|
+| `{dataset_label}.tsv.gz`         | Spot × Gene expression matrix               |
+| `{dataset_label}_selection.tsv.gz` | Spot coordinates (including pixel_x/y)     |
+| `{dataset_label}.jpg`            | High-resolution tissue image                |
+
+---
+
+#### `create_adata()` Function: Build AnnData for Custom Datasets Example Code for `create_adata()`
+
+```python
+def create_adata(data_path, dataset_label):
+    import pandas as pd
+    import numpy as np
+    from PIL import Image
+    from scipy.spatial import cKDTree
+    import anndata
+
+    # 1. Load expression matrix
+    expression_matrix = pd.read_csv(
+        f"{data_path}/{dataset_label}/{dataset_label}.tsv.gz",
+        sep="\t", index_col=0
+    )
+
+    # 2. Load spot coordinates
+    spot_coordinates = pd.read_csv(
+        f"{data_path}/{dataset_label}/{dataset_label}_selection.tsv.gz",
+        sep="\t"
+    )
+
+    # 3. Generate spot IDs and match with expression matrix
+    spot_coordinates['spot'] = spot_coordinates['x'].astype(str) + 'x' + spot_coordinates['y'].astype(str)
+    common_spots = expression_matrix.index.intersection(spot_coordinates['spot'])
+    expression_matrix = expression_matrix.loc[common_spots]
+    spot_coordinates = spot_coordinates.set_index('spot').loc[common_spots].reset_index()
+
+    # 4. Compute neighbor distance (for patch size estimation)
+    coords = spot_coordinates[['pixel_x', 'pixel_y']].values
+    tree = cKDTree(coords)
+    distances, _ = tree.query(coords, k=5)
+    min_distances = distances[:, 1:].min(axis=1)
+    spot_coordinates['neighbor_distance'] = min_distances
+
+    # 5. Load tissue image
+    image_path = f"{data_path}/{dataset_label}/{dataset_label}.jpg"
+    image = Image.open(image_path)
+    image_array = np.array(image)
+
+    # 6. Construct AnnData
+    adata = anndata.AnnData(X=expression_matrix)
+
+    # 7. Add metadata
+    adata.obsm['spatial'] = spot_coordinates[['pixel_x', 'pixel_y']].values
+    adata.obsm['supp_info'] = spot_coordinates[['x', 'y', 'new_x', 'new_y']].values
+    adata.obs['neighbor_distance'] = spot_coordinates['neighbor_distance'].values
+    adata.uns['spatial'] = {
+        dataset_label: {
+            'images': {
+                'hires': image_array,
+                'lowres': image_array
+            },
+            'scalefactors': {
+                'spot_diameter_fullres': np.min(min_distances),
+                'tissue_hires_scalef': 1,
+                'tissue_lowres_scalef': 1
+            },
+            'metadata': {
+                'chemistry_description': "raw data not provided",
+                'software_version': 'raw data not provided'
+            }
+        }
+    }
+
+    return adata, image_array
+```
+
+---
+
+#### `create_adata()` Function: Build AnnData for Custom Datasets Notes
+
+- The `neighbor_distance` is used to approximate the full-resolution spot size.
+- The `adata.uns['spatial']` field mimics 10x Visium's data structure, which helps with downstream compatibility.
+- Modify this function if your data format differs.
+
+
 ###  Step 1: Nuclear Segmentation (Using Hover-Net)
 
 > This step uses a **pretrained Hover-Net model** to perform **nucleus segmentation** on each image patch.  
@@ -101,7 +224,7 @@ bash run_hovernet.sh
 
 ###  Step 2: Feature Extraction (from Segmented Nuclei)
 
-> After segmentation, this step extracts **cell-level features** from each patch using both image and segmentation data.  
+> After segmentation, this step extracts **patch-level features** from each patch using both image and segmentation data.  
 The script [`patch_cell_feature_extract_.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
 
 ---
@@ -155,7 +278,7 @@ Make sure `process_files()` is imported or defined in your script.
 
 ###  Step 3: Model Training and Evaluation (Multi-Modal Graph Neural Network)
 
-> In this step, a **multi-branch GCN model** is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
+> In this step, M2TGLO is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
 > The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity graphs** to regularize prediction.
 
 ---
@@ -184,23 +307,20 @@ Your training input directory should be organized as follows:
 Set up paths, training mode, gene filtering strategy, and evaluation split.
 
 ```python
-import torch
-from utils import create_dir
 
 # Device configuration
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-print("Using device:", device)
 
 # GNN architecture types
 mgcn_gnn_type = "gat"        # For mGCN (multi-branch graph for spatial features)
 gene_gnn_type = "gat"        # For gene-level graph (based on GO similarity)
 
 # Dataset configuration
-dataset_key = "other"        # Key to distinguish dataset domain
+dataset_key = "other"        # Key to distinguish dataset
 species = "human"            # Used for gene ontology lookup
 
 # Directory containing processed input data
-input_dir = "sh/data/bc"
+input_dir = "/data/"
 
 # List of all available datasets
 dataset_labels = [
@@ -224,7 +344,7 @@ create_dir(train_folder)
 mode = "train"
 
 # Gene selection strategy
-gene_type = "highly_variable"   # Options: "highly_variable", "marker", "all"
+gene_type = "highly_variable"   
 n_top_genes = 3000              # Number of top genes to retain for modeling
 ```
 
@@ -276,7 +396,7 @@ gene_similarity_matrix = check_gene_similarity_matrix(
 
 ---
 
-#### ⚠️ Note on GO-based Gene Similarity Computation
+##### ⚠️ Note on GO-based Gene Similarity Computation
 
 - The function `check_gene_similarity_matrix()` may take significant time on the **first run**, as it computes semantic similarity between genes using the GO DAG.
 - You can set the number of parallel CPU **cores/threads** used for this step to accelerate the process.
