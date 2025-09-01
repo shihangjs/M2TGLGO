@@ -45,7 +45,7 @@ data/
 Cropped image patches will be saved to:
 
 ```
-/data/bc/{SAMPLE_ID}/patches/
+/data/{SAMPLE_ID}/patches/
 ```
 
 Each patch corresponds to one spatial spot, and will be used in downstream nuclear segmentation.
@@ -102,9 +102,7 @@ bash run_hovernet.sh
 ###  Step 2: Feature Extraction (from Segmented Nuclei)
 
 > After segmentation, this step extracts **cell-level features** from each patch using both image and segmentation data.  
-> These features are used in downstream modeling tasks such as classification, clustering, or spatial analysis.
-
-The script [`patch_cell_feature_extract_.py`](preprocess/patch_cell_feature_extract_.py) processes all required files and outputs one `.csv` per sample.
+The script [`patch_cell_feature_extract_.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
 
 ---
 
