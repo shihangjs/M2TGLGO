@@ -284,3 +284,66 @@ gene_similarity_matrix = check_gene_similarity_matrix(
   - The code automatically saves intermediate results (e.g., partially completed similarity matrices).
   - You can **simply re-run the script**, and it will resume from where it left off instead of starting over.
 
+
+### Step 3.3: Train the Multi-Modal GCN Model
+
+Once all data is loaded and preprocessed, you can start model training using the following function call:
+
+```python
+train(
+    input_dir=train_folder,
+    dataset_labels=train_dataset_labels,
+    features_and_adjacencies_per_dataset=features_and_adjacencies_per_dataset,
+    img_features_per_dataset=img_features_per_dataset,
+    raw_gene_expression_data=raw_gene_expression_data,
+    gene_embeddings=gene_embeddings,
+    gene_similarity_matrix=gene_similarity_matrix,
+    mgcn_gnn_type=mgcn_gnn_type,
+    gene_gnn_type=gene_gnn_type,
+    mode=mode,
+    device=device
+)
+```
+
+
+### Step 3.4: Evaluate on Held-Out Dataset
+
+After training is complete, you can evaluate the model on the **held-out dataset** (specified by `eval_label`) by switching to evaluation mode:
+```python
+mode = "eval"
+```
+
+```python
+model_mgcn.eval()
+model_gene_embedding.eval()
+
+with torch.no_grad():
+    updated_gene_embeddings = model_gene_embedding(gene_similarity_matrix_tensor_dgl, gene_embeddings_tensor)
+
+    data = features_and_adjacencies_per_dataset[eval_label]
+    gene_expression_data = raw_gene_expression_data[eval_label]
+    adj_matrix = convert_adj_matrix_to_dgl_graph(data['cumulative_adj_matrix'], mgcn_gnn_type, device)
+
+    node_features_list = [
+        data['filtered_cell_level_features_tensor'],
+        data['filtered_patch_level_features_tensor'],
+        img_features_per_dataset[eval_label]
+    ]
+
+    node_embeddings = model_mgcn(node_features_list, adj_matrix)
+
+    predicted_expression = torch.matmul(node_embeddings, updated_gene_embeddings.T)
+```
+
+This produces a **predicted expression matrix** for the held-out dataset.
+
+---
+
+#### Output
+
+You can optionally save the predicted expression as `.csv` or `.npy` for downstream comparison with the ground truth:
+
+```python
+# Optional save
+torch.save(predicted_expression.cpu(), f"{train_folder}/predicted_expression.pt")
+```
