@@ -183,7 +183,6 @@ bash run_hovernet.sh
 ```
 
 #### Output Directory Structure
-
 After running the segmentation, each dataset folder will contain a `segment/` subdirectory:
 
 ```
@@ -197,8 +196,6 @@ data/
 
 These outputs are required for the next step (feature extraction).
 
----
-
 #### Notes
 
 * Ensure that each dataset (A1, B1, etc.) has a valid set of image patches in `/patches/` before running Hover-Net.
@@ -206,15 +203,13 @@ These outputs are required for the next step (feature extraction).
 * Adjust `--gpu`, `--batch_size`, or `--nr_workers` based on your local hardware.
 * The output is fully compatible with the downstream feature extraction script `patch_cell_feature_extract_.py`.
 
----
-
 You can now proceed to Step 2: Feature Extraction.
 
 ---
 ### Step 2: Feature Extraction (from Segmented Nuclei)
 
 > After segmentation, this step extracts **patch-level features** from each patch using both image and segmentation data.
-> The script [`patch_cell_feature_extract.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
+> The script [`patch_cell_feature_extract.py`] processes all required files.
 
 #### Required Folder Structure
 
@@ -235,26 +230,14 @@ data/
 If you're processing multiple samples, you can run a loop like this:
 
 ```python
-files = ["A1", "A2", "A3", "B1", "B2", "B3"]
-input_dir = "data"
-segment_tool = "hovernet"
-
-for file in files:
-    print(file)
-    dataset_label = file
-    mat_dir = f"{input_dir}/{dataset_label}/segment/mat"
-    output_dir = f"{input_dir}/{dataset_label}/feature"
-    patches_dir = f"{input_dir}/{dataset_label}/patches"
-    json_dir = f"{input_dir}/{dataset_label}/segment/json"
-
-    process_files(
-        mat_dir=mat_dir,
-        output_dir=output_dir,
-        dataset_label=dataset_label,
-        patches_dir=patches_dir,
-        json_dir=json_dir,
-        segment_tool=segment_tool
-    )
+    exclude_dirs = {'training_experiments', 'model_pth', 'preprocess_output'}
+    datasets = [f for f in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, f)) and f not in exclude_dirs]
+    for dataset_label in datasets:
+        mat_dir = os.path.join(input_dir, dataset_label, "segment", "mat")
+        output_dir = os.path.join(input_dir, dataset_label, "feature")
+        patches_dir = os.path.join(input_dir, dataset_label, "patches")
+        json_dir = os.path.join(input_dir, dataset_label, "segment", "json")
+        process_files(mat_dir, output_dir, dataset_label, patches_dir, json_dir, segment_tool)
 ```
 
 Make sure the function `process_files()` is properly imported or defined in your script.
@@ -263,8 +246,6 @@ Make sure the function `process_files()` is properly imported or defined in your
 ###  Step 3: Model Training and Evaluation
 > In this step, M2TGLO is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
 > The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity** to regularize prediction.
-
-
 
 ####  Input Requirements
 
