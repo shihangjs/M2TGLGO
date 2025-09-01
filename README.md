@@ -1,43 +1,55 @@
-### **Most of the core code is already in place. We are currently organizing the project, and full examples will be available in August. Stay tuned!**
+###  Step 0: Patch Cropping (Based on Spatial Transcriptomics Spots)
 
-This project performs end-to-end processing of histological image patches, including:
-1. Nuclear Segmentation using [Hover-Net](https://github.com/vqdang/hover_net)
-2. Feature Extraction from segmented nuclei
-3. Model Training and Evaluation
+> This is the **initial step** of the pipeline. Before nuclear segmentation, you must crop image patches around spatial transcriptomics **spot locations** from high-resolution histology images.  
+> Each sample (e.g., `A1`, `B1`, etc.) contains its own image and corresponding spot coordinate files.
+
 ---
-## Pipeline Overview
-### Step 1: Nuclear Segmentation
-Use a pretrained Hover-Net model to segment nuclei from image patches.
-#### Input:
-- Image patches in: `/data/bc/{DATASET}/patches/`
-#### Output:
-- Segmentation masks saved to: `/dlpfc/{bc}/segment/`
-#### Run Segmentation Script (`batch_infer.sh`):
-```bash
-#!/bin/bash
-datasets=(
-    A1 A2 A3 A4 A5 A6
-    B1 B2 B3 B4 B5 B6
-)
 
-for dataset in "${datasets[@]}"; do
-    python3 run_infer.py \
-        --gpu='3' \
-        --nr_types=6 \
-        --type_info_path=type_info.json \
-        --batch_size=32 \
-        --model_mode=fast \
-        --model_path=./pretrained/hovernet_fast_pannuke_type_tf2pytorch.tar \
-        --nr_inference_workers=8 \
-        --nr_post_proc_workers=16 \
-        tile \
-        --input_dir="/data/bc/${dataset}/patches" \
-        --output_dir="/bc/${dataset}/segment" \
-        --mem_usage=0.1 \
-        --draw_dot \
-        --save_qupath
-done
+####  Input Format
+
+Each sample directory (e.g., `A1`, `B1`, etc.) should contain the following files:
+
+| File Name                  | Description                                      |
+|----------------------------|--------------------------------------------------|
+| `*.jpg`                   | Histology tissue image for the sample            |
+| `*.tsv.gz`                | Spot coordinate file (with x/y positions)        |
+| `*_selection.tsv.gz`      | *(Optional)* A filtered list of selected spots   |
+
+These files will be used to generate image patches centered on each spatial spot.
+
+---
+
+#### Example Directory Structure
+
 ```
-### Step 2: Feature Extraction
-After segmentation, extract morphological, spatial, or biological features using scripts in the preprocess/ folder.
-### Step 3: Model Training and Evaluation
+data/
+├── A1/
+│   ├── A1.jpg
+│   ├── A1.tsv.gz
+│   └── A1_selection.tsv.gz
+├── A2/
+│   ├── A2.jpg
+│   ├── A2.tsv.gz
+│   └── A2_selection.tsv.gz
+├── ...
+├── B1/
+│   ├── B1.jpg
+│   ├── B1.tsv.gz
+│   └── B1_selection.tsv.gz
+```
+
+---
+
+####  Output
+
+Cropped image patches will be saved to:
+
+```
+/data/bc/{SAMPLE_ID}/patches/
+```
+
+Each patch corresponds to one spatial spot, and will be used in downstream nuclear segmentation.
+
+---
+
+
