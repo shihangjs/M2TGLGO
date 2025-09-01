@@ -153,5 +153,134 @@ Make sure `process_files()` is imported or defined in your script.
 
 ---
 
+###  Step 3: Model Training and Evaluation (Multi-Modal Graph Neural Network)
 
+> In this step, a **multi-branch GCN model** is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
+> The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity graphs** to regularize prediction.
+
+---
+
+####  Input Requirements
+
+Your training input directory should be organized as follows:
+
+```
+{input_dir}/
+├── A1/ ~ B6/
+│   ├── patches/                 # From Step 0
+│   ├── segment/                # From Step 1
+│   ├── feature/                # From Step 2
+│
+│
+├── biological_database/
+│   ├── gene2vec_dim_200_iter_9_w2v.txt
+│   └── go-basic.obo
+```
+
+---
+
+### Step 3.1: Configure Training Settings
+
+Set up paths, training mode, gene filtering strategy, and evaluation split.
+
+```python
+import torch
+from utils import create_dir
+
+# Device configuration
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+print("Using device:", device)
+
+# GNN architecture types
+mgcn_gnn_type = "gat"        # For mGCN (multi-branch graph for spatial features)
+gene_gnn_type = "gat"        # For gene-level graph (based on GO similarity)
+
+# Dataset configuration
+dataset_key = "other"        # Key to distinguish dataset domain
+species = "human"            # Used for gene ontology lookup
+
+# Directory containing processed input data
+input_dir = "sh/data/bc"
+
+# List of all available datasets
+dataset_labels = [
+    "A1", "A2", "A3", "A4", "A5", "A6",
+    "B1", "B2", "B3", "B4", "B5", "B6"
+]
+
+# Leave-one-out evaluation setup
+eval_label = "A1"  # Dataset held out for evaluation
+train_dataset_labels = list(set(dataset_labels) - set([eval_label]))
+
+# Optional: specify marker genes to include (default is empty)
+marker_genes = ''
+
+# Directory to save experiment outputs
+create_dir(f"{input_dir}/experiments")
+train_folder = f"{input_dir}/experiments/{eval_label}"
+create_dir(train_folder)
+
+# Mode can be "train" or "eval"
+mode = "train"
+
+# Gene selection strategy
+gene_type = "highly_variable"   # Options: "highly_variable", "marker", "all"
+n_top_genes = 3000              # Number of top genes to retain for modeling
+```
+
+---
+
+### Step 3.2: Load or Generate Training Data
+
+> This step **automatically checks for existing processed data** (e.g., `.pt`, `.csv`, `.npy`) and loads them if available.  
+> If not found, it will **run the corresponding preprocessing logic** to generate the necessary files.
+
+---
+
+#### Data Preparation Code
+
+```python
+# Load or preprocess features & graph structure
+features_and_adjacencies_per_dataset, analyzed_genes, spots_used_per_dataset = check_preprocess_data(
+    input_dir=input_dir,
+    dataset_key=dataset_key,
+    dataset_labels=dataset_labels,
+    train_dataset_labels=train_dataset_labels,
+    gene_type=gene_type,
+    n_top_genes=n_top_genes,
+    gene_embeddings_keys=gene_embeddings.keys(),
+    marker_genes=marker_genes,
+    mgcn_gnn_type=mgcn_gnn_type,
+    mode=mode,
+    device=device
+)
+
+# Load or compute raw gene expression matrix (per spot)
+raw_gene_expression_data = check_gene_expression(
+    input_dir, dataset_key, train_dataset_labels, spots_used_per_dataset,
+    gene_type, analyzed_genes, mode, device
+)
+
+# Load or compute image-level features per patch (e.g., CNN-based vectors)
+img_features_per_dataset = check_image_feature(
+    input_dir, dataset_key, dataset_labels, train_dataset_labels,
+    spots_used_per_dataset, gene_type, mode, device
+)
+
+# Load or build gene similarity matrix from GO ontology
+GODag_path = "sh/scripts/MultiDimGCN/biological_database/go-basic.obo"
+gene_similarity_matrix = check_gene_similarity_matrix(
+    input_dir, species, gene_type, analyzed_genes, GODag_path
+)
+```
+
+---
+
+#### ⚠️ Note on GO-based Gene Similarity Computation
+
+- The function `check_gene_similarity_matrix()` may take significant time on the **first run**, as it computes semantic similarity between genes using the GO DAG.
+- You can set the number of parallel CPU **cores/threads** used for this step to accelerate the process.
+- If the process crashes or is interrupted (e.g., due to memory issues or I/O), **do not worry**:
+  - The code automatically saves intermediate results (e.g., partially completed similarity matrices).
+  - You can **simply re-run the script**, and it will resume from where it left off instead of starting over.
 
