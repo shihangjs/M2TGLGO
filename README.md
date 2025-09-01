@@ -139,13 +139,11 @@ def create_adata(data_path, dataset_label):
 
 ---
 
-
 ### Step 1: Nuclear Segmentation (Using Hover-Net)
 
 > This step uses a **pretrained Hover-Net model** to perform **nucleus segmentation** on each image patch.
 > The output is a per-spot segmentation mask and cell type annotation, which will be used in the next step (feature extraction).
 
----
 
 #### Hover-Net Segmentation Script (`run_hovernet.sh`)
 
@@ -184,8 +182,6 @@ You may save this script as `run_hovernet.sh` and execute:
 bash run_hovernet.sh
 ```
 
----
-
 #### Output Directory Structure
 
 After running the segmentation, each dataset folder will contain a `segment/` subdirectory:
@@ -214,12 +210,11 @@ These outputs are required for the next step (feature extraction).
 
 You can now proceed to Step 2: Feature Extraction.
 
+---
 ### Step 2: Feature Extraction (from Segmented Nuclei)
 
 > After segmentation, this step extracts **patch-level features** from each patch using both image and segmentation data.
 > The script [`patch_cell_feature_extract.py`](preprocess/patch_cell_feature_extract_.py) processes all required files.
-
----
 
 #### Required Folder Structure
 
@@ -234,8 +229,6 @@ data/
     │   └── json/                # JSON files with nucleus contours / cell type info
     └── feature/               # [Output] Extracted feature CSVs will be saved here
 ```
-
----
 
 #### Example Feature Extraction Loop
 
@@ -267,35 +260,11 @@ for file in files:
 Make sure the function `process_files()` is properly imported or defined in your script.
 
 ---
-
----
-
-### Extracted Features Overview
-
-During Step 2, the following types of features are extracted from each segmented nucleus and aggregated per patch:
-
-#### Morphological Features
-- **Shape descriptors**: area, perimeter, eccentricity, aspect ratio, solidity, convexity, etc.
-- **Skeleton-based features**: skeleton length, convex area, Euler number.
-
-#### Spatial Features
-- **Graph-based metrics**: number of Delaunay neighbors, average neighbor distance, nearest neighbor distance.
-- **Voronoi area**: local spatial density estimation per nucleus.
-
-#### Texture Features
-- **GLCM-based**: contrast, correlation, energy, entropy, homogeneity, dissimilarity, and advanced statistical measures.
-- **LBP histogram**: Local Binary Pattern histograms capturing local texture patterns.
-
-Each feature is first computed at the **cell level**, and then **aggregated (mean-pooled)** to generate patch-level features for downstream modeling.
-
----
-
-
 ###  Step 3: Model Training and Evaluation
 > In this step, M2TGLO is trained to predict gene expression levels from cell-level, patch-level, and image-level features.  
 > The model also incorporates **gene embeddings** (from gene2vec) and **GO-based gene similarity** to regularize prediction.
 
----
+
 
 ####  Input Requirements
 
@@ -369,7 +338,6 @@ n_top_genes = 3000              # Number of top genes to retain for modeling
 > This step **automatically checks for existing processed data** (e.g., `.pt`, `.csv`, `.npy`) and loads them if available.  
 > If not found, it will **run the corresponding preprocessing logic** to generate the necessary files.
 
----
 
 #### Data Preparation Code
 
@@ -408,8 +376,6 @@ gene_similarity_matrix = check_gene_similarity_matrix(
 )
 ```
 
----
-
 ##### ⚠️ Note on GO-based Gene Similarity Computation
 
 - The function `check_gene_similarity_matrix()` may take significant time on the **first run**, as it computes semantic similarity between genes using the GO DAG.
@@ -418,8 +384,8 @@ gene_similarity_matrix = check_gene_similarity_matrix(
   - The code automatically saves intermediate results (e.g., partially completed similarity matrices).
   - You can **simply re-run the script**, and it will resume from where it left off instead of starting over.
 
-
-### Step 3.3: Train the Multi-Modal GCN Model
+---
+### Step 3.3: Train the Multi-Modal Model
 
 Once all data is loaded and preprocessed, you can start model training using the following function call:
 
@@ -439,8 +405,8 @@ train(
 )
 ```
 
-
-### Step 3.4: Evaluate on Held-Out Dataset
+---
+### Step 3.4: Evaluate
 
 After training is complete, you can evaluate the model on the **held-out dataset** (specified by `eval_label`) by switching to evaluation mode:
 ```python
@@ -472,7 +438,6 @@ with torch.no_grad():
 This produces a **predicted expression matrix** for the held-out dataset.
 
 ---
-
 #### Output
 
 You can optionally save the predicted expression as `.csv` or `.npy` for downstream comparison with the ground truth:
