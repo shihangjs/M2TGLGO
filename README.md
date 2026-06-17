@@ -1,3 +1,13 @@
+## Latest Update
+
+This update mainly improves the organization of the repository and adds files required for model evaluation.
+
+Specifically, the project structure has been reorganized by renaming `scripts/` to `src/` and moving `biological_database/` into the `data/` directory. In addition, the evaluation code has been updated, and the evaluation notebook `eval.ipynb` has been added. The `top50_gene` files used during evaluation are also included in this update.
+
+---
+
+
+
 ### Step 0: Patch Cropping
 
 > This is the **initial step** of the pipeline. Before nuclear segmentation, you must crop image patches around spatial transcriptomics **spot locations** from high-resolution histology images.
